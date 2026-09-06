@@ -553,6 +553,20 @@
 (function(){
   const $ = (id) => document.getElementById(id);
 
+  // Fall back to localStorage when running as a plain static page (e.g. GitHub Pages),
+  // where window.storage (a Claude Artifact-only API) isn't available.
+  if(!window.storage){
+    window.storage = {
+      async get(key){
+        const v = localStorage.getItem(key);
+        return v === null ? null : { value: v };
+      },
+      async set(key, value){
+        localStorage.setItem(key, value);
+      }
+    };
+  }
+
   const defaultCompany = {
     nameEn:'', nameAr:'', address:'', phone:'', trn:'', vat:5, nextInv:1001
   };
