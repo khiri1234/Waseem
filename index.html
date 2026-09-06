@@ -314,7 +314,6 @@
   .doc table.doc-items td{ padding:13px 10px; border:1px solid #000; font-size:14px; color:#000; vertical-align:top; }
   .doc table.doc-items td.r{ text-align:right; }
   .doc table.doc-items td.c{ text-align:center; }
-  .doc table.doc-items tbody tr.filler td{ height:38px; border-left:1px solid #000; border-right:1px solid #000; border-top:none; border-bottom:none; }
 
   /* ---- Totals: full-width rows under the table, like the reference ---- */
   .doc .totals-block{ border:1.3px solid #000; border-top:none; }
@@ -852,9 +851,6 @@
       const isFirst = pageNo === 0;
       const isLast = pageNo === totalPages - 1;
       const rowsHtml = chunk.map(({item, idx}) => buildRow(item, idx)).join('');
-      // pad the last page with filler rows so short invoices still look complete
-      const fillerCount = isLast ? Math.max(0, (isFirst ? FIRST_PAGE_MAX : OTHER_PAGE_MAX) - chunk.length) : 0;
-      const fillerHtml = Array.from({length: fillerCount}).map(()=>`<tr class="filler"><td colspan="8">&nbsp;</td></tr>`).join('');
 
       const headerHtml = isFirst ? `
         <div class="co-name-en">${escapeHtml(company.nameEn) || 'YOUR COMPANY NAME L.L.C'}</div>
@@ -912,7 +908,7 @@
             <div class="doc-body">
             <table class="doc-items">
               <thead>${ITEMS_HEAD}</thead>
-              <tbody>${rowsHtml}${fillerHtml}</tbody>
+              <tbody>${rowsHtml}</tbody>
             </table>
             ${footerHtml}
             </div>
