@@ -534,11 +534,15 @@
       <div class="topbar">
         <div>
           <h1>Saved invoices</h1>
-          <div class="desc">Click any invoice to reopen and edit it.</div>
+          <div class="desc">Search, then click any invoice to view and reopen it.</div>
         </div>
       </div>
       <div class="content">
         <div class="card">
+          <div class="card-head">
+            <input type="text" id="invoiceSearch" placeholder="Search by customer, invoice #, LPO, or date…" autocomplete="off" style="max-width:420px;">
+            <span class="tag" id="invoiceSearchCount"></span>
+          </div>
           <div class="inv-list" id="savedList">
             <div class="empty-note">No invoices saved yet — create one in the New Invoice tab.</div>
           </div>
@@ -1034,11 +1038,24 @@
 
   function renderSavedList(){
     const wrap = $('savedList');
+    const countTag = $('invoiceSearchCount');
     if(!savedInvoices.length){
       wrap.innerHTML = `<div class="empty-note">No invoices saved yet — create one in the New Invoice tab.</div>`;
+      if(countTag) countTag.textContent = '';
       return;
     }
-    wrap.innerHTML = savedInvoices.map(inv => `
+    const q = ($('invoiceSearch') && $('invoiceSearch').value || '').trim().toLowerCase();
+    const filtered = !q ? savedInvoices : savedInvoices.filter(inv => [
+      inv.custName, inv.invNo, inv.lpoNo, inv.date, (inv.net||0).toFixed(2)
+    ].some(field => (field||'').toString().toLowerCase().includes(q)));
+
+    if(countTag) countTag.textContent = q ? `${filtered.length} of ${savedInvoices.length}` : `${savedInvoices.length} total`;
+
+    if(!filtered.length){
+      wrap.innerHTML = `<div class="empty-note">No invoices match “${escapeHtml($('invoiceSearch').value)}”.</div>`;
+      return;
+    }
+    wrap.innerHTML = filtered.map(inv => `
       <div class="inv-row" data-inv="${escapeAttr(inv.invNo)}">
         <div>
           <div class="name">${escapeHtml(inv.custName)||'(no customer name)'}</div>
@@ -1051,6 +1068,7 @@
       row.addEventListener('click', ()=> openInvoice(row.dataset.inv));
     });
   }
+  $('invoiceSearch').addEventListener('input', renderSavedList);
 
   async function openInvoice(invNo){
     try{
