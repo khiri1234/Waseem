@@ -549,9 +549,64 @@
   </main>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script>
 (function(){
   const $ = (id) => document.getElementById(id);
+
+  // Persist company profile / invoices / clients / catalog to Firestore so they
+  // survive across browsers and devices. Falls back to localStorage if Firebase
+  // fails to load or initialize (e.g. offline, blocked script, misconfigured project).
+  (function setupStorage(){
+    try{
+      const firebaseConfig = {
+        apiKey: "AIzaSyD_2tkgjDZJ0fI7tZk-1XX3aTPKp1V3agA",
+        authDomain: "waseem-ab094.firebaseapp.com",
+        projectId: "waseem-ab094",
+        storageBucket: "waseem-ab094.firebasestorage.app",
+        messagingSenderId: "303163022275",
+        appId: "1:303163022275:web:b1f0d9b39b391ed5c7fb76"
+      };
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.firestore();
+      const auth = firebase.auth();
+
+      const authReady = new Promise((resolve) => {
+        const unsub = auth.onAuthStateChanged(user => {
+          if(user){ unsub(); resolve(user); }
+        });
+        auth.signInAnonymously().catch(() => resolve(null));
+      });
+
+      window.storage = {
+        async get(key){
+          await authReady;
+          const snap = await db.collection('kv').doc(key).get();
+          return snap.exists ? { value: snap.data().value } : null;
+        },
+        async set(key, value){
+          await authReady;
+          await db.collection('kv').doc(key).set({ value });
+        }
+      };
+    }catch(e){
+      window.storage = null; // fall through to localStorage below
+    }
+
+    if(!window.storage){
+      window.storage = {
+        async get(key){
+          const v = localStorage.getItem(key);
+          return v === null ? null : { value: v };
+        },
+        async set(key, value){
+          localStorage.setItem(key, value);
+        }
+      };
+    }
+  })();
 
   const defaultCompany = {
     nameEn:'', nameAr:'', address:'', phone:'', trn:'', vat:5, nextInv:1001
