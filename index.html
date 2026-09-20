@@ -38,29 +38,81 @@
   ::selection{ background:var(--brass-light); }
 
   /* ================= APP SHELL ================= */
-  .shell{ display:flex; min-height:100vh; }
+  .shell{ display:flex; min-height:100vh; transition:opacity .5s ease; }
   .shell.hidden{ display:none; }
+  .shell.pre-fade{ opacity:0; }
 
   /* ---- PIN gate ---- */
+  @keyframes pinFadeIn{ from{ opacity:0; } to{ opacity:1; } }
+  @keyframes pinFadeOut{ from{ opacity:1; visibility:visible; } to{ opacity:0; visibility:hidden; } }
+  @keyframes pinCardIn{ from{ opacity:0; transform:translateY(18px) scale(0.97); } to{ opacity:1; transform:translateY(0) scale(1); } }
+  @keyframes pinGlow{
+    0%,100%{ box-shadow:0 20px 50px rgba(0,0,0,0.35), 0 0 0 0 rgba(180,134,60,0); }
+    50%{ box-shadow:0 20px 50px rgba(0,0,0,0.35), 0 0 26px 2px rgba(180,134,60,0.22); }
+  }
+  @keyframes pinDotIn{ from{ transform:scale(0.3); opacity:0; } 60%{ transform:scale(1.25); } to{ transform:scale(1); opacity:1; } }
+  @keyframes pinShake{
+    10%,90%{ transform:translateX(-1px); }
+    20%,80%{ transform:translateX(2px); }
+    30%,50%,70%{ transform:translateX(-5px); }
+    40%,60%{ transform:translateX(5px); }
+  }
+  @keyframes pinCheckPop{ from{ transform:scale(0.4); opacity:0; } to{ transform:scale(1); opacity:1; } }
+  @keyframes pinStroke{ to{ stroke-dashoffset:0; } }
+
   .pin-overlay{
     min-height:100vh; display:flex; align-items:center; justify-content:center;
-    background:var(--navy);
+    background:radial-gradient(circle at 50% 30%, var(--navy-3), var(--navy) 70%);
+    animation:pinFadeIn .35s ease both;
   }
   .pin-overlay.hidden{ display:none; }
+  .pin-overlay.unlocking{ animation:pinFadeOut .5s ease forwards; }
   .pin-card{
     width:100%; max-width:300px; background:var(--paper);
-    border-radius:12px; padding:34px 30px 30px; text-align:center;
+    border-radius:14px; padding:36px 30px 30px; text-align:center;
     box-shadow:0 20px 50px rgba(0,0,0,0.35);
+    animation:pinCardIn .5s cubic-bezier(.2,.8,.2,1) both, pinGlow 3.2s ease-in-out .6s infinite;
   }
   .pin-brand{ font-family:'Fraunces', serif; font-size:22px; font-weight:600; color:var(--navy); }
   .pin-brand em{ font-style:normal; color:var(--brass); }
-  .pin-sub{ color:var(--ink-soft); font-size:12.5px; margin-top:4px; margin-bottom:22px; }
-  .pin-input{
-    width:100%; text-align:center; font-size:26px; letter-spacing:14px;
-    font-family:'IBM Plex Mono', monospace; padding:12px 11px 12px 25px;
+  .pin-sub{ color:var(--ink-soft); font-size:12.5px; margin-top:4px; margin-bottom:26px; }
+
+  .pin-boxes{
+    display:flex; gap:12px; justify-content:center; cursor:text; position:relative;
   }
-  .pin-card .btn{ width:100%; margin-top:14px; }
-  .pin-error{ color:var(--danger); font-size:12.5px; margin-top:12px; min-height:1em; }
+  .pin-boxes.shake{ animation:pinShake .45s cubic-bezier(.36,.07,.19,.97) both; }
+  .pin-box{
+    width:48px; height:56px; border-radius:10px;
+    border:1.6px solid var(--line); background:#FBFAF6;
+    display:flex; align-items:center; justify-content:center;
+    transition:border-color .15s, background .15s;
+  }
+  .pin-box.filled{ border-color:var(--brass); background:#fff; }
+  .pin-boxes.error .pin-box{ border-color:var(--danger); background:#FCEEEC; }
+  .pin-box .dot{
+    width:11px; height:11px; border-radius:50%; background:var(--navy);
+    animation:pinDotIn .22s cubic-bezier(.2,.9,.3,1.4) both;
+  }
+  .pin-boxes.error .pin-box .dot{ background:var(--danger); }
+  .pin-input-hidden{
+    position:absolute; inset:0; opacity:0; border:none; padding:0; margin:0;
+    font-size:16px; /* prevents iOS zoom-on-focus */
+  }
+  .pin-error{ color:var(--danger); font-size:12.5px; margin-top:16px; min-height:1em; }
+
+  .pin-success{ display:flex; align-items:center; justify-content:center; }
+  .pin-success[hidden]{ display:none; }
+  .pin-check{ width:64px; height:64px; animation:pinCheckPop .3s ease both; }
+  .pin-check-circle{
+    stroke:var(--ok); stroke-width:2.5;
+    stroke-dasharray:166; stroke-dashoffset:166;
+    animation:pinStroke .5s cubic-bezier(.65,0,.45,1) .05s forwards;
+  }
+  .pin-check-mark{
+    stroke:var(--ok); stroke-width:3; stroke-linecap:round; stroke-linejoin:round;
+    stroke-dasharray:48; stroke-dashoffset:48;
+    animation:pinStroke .3s cubic-bezier(.65,0,.45,1) .45s forwards;
+  }
 
   /* ---- Sidebar ---- */
   .rail{
@@ -388,14 +440,25 @@
 <body>
 
 <div class="pin-overlay" id="pinOverlay">
-  <div class="pin-card">
-    <div class="pin-brand">Ledger<em>·</em></div>
-    <div class="pin-sub">Tax Invoicing — enter PIN to continue</div>
-    <form id="pinForm">
-      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pinInput" autocomplete="off" class="pin-input" placeholder="••••">
-      <button type="submit" class="btn">Unlock</button>
-      <div class="pin-error" id="pinError"></div>
-    </form>
+  <div class="pin-card" id="pinCard">
+    <div id="pinEntry">
+      <div class="pin-brand">Ledger<em>·</em></div>
+      <div class="pin-sub">Tax Invoicing — enter PIN to continue</div>
+      <div class="pin-boxes" id="pinBoxes">
+        <div class="pin-box" data-i="0"></div>
+        <div class="pin-box" data-i="1"></div>
+        <div class="pin-box" data-i="2"></div>
+        <div class="pin-box" data-i="3"></div>
+        <input type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pinInput" autocomplete="off" class="pin-input-hidden">
+      </div>
+      <div class="pin-error" id="pinError">&nbsp;</div>
+    </div>
+    <div class="pin-success" id="pinSuccess" hidden>
+      <svg class="pin-check" viewBox="0 0 52 52">
+        <circle class="pin-check-circle" cx="26" cy="26" r="24" fill="none"/>
+        <path class="pin-check-mark" fill="none" d="M14 27l7 7 16-16"/>
+      </svg>
+    </div>
   </div>
 </div>
 
@@ -644,29 +707,74 @@
     const PIN_KEY = 'pin-unlocked';
     const overlay = $('pinOverlay');
     const shell = $('appShell');
+    const input = $('pinInput');
+    const boxesWrap = $('pinBoxes');
+    const boxes = Array.from(boxesWrap.querySelectorAll('.pin-box'));
+    const errorEl = $('pinError');
 
-    function unlock(){
-      overlay.classList.add('hidden');
+    function renderBoxes(value){
+      boxes.forEach((box, i)=>{
+        const has = i < value.length;
+        box.classList.toggle('filled', has);
+        box.innerHTML = has ? '<span class="dot"></span>' : '';
+      });
+    }
+
+    function revealApp(){
       shell.classList.remove('hidden');
+      shell.classList.add('pre-fade');
+      requestAnimationFrame(()=> requestAnimationFrame(()=> shell.classList.remove('pre-fade')));
+      overlay.classList.add('unlocking');
+      setTimeout(()=> overlay.classList.add('hidden'), 520);
+    }
+
+    function playSuccess(){
+      $('pinEntry').hidden = true;
+      $('pinSuccess').hidden = false;
+      setTimeout(revealApp, 650);
+    }
+
+    function playError(){
+      boxesWrap.classList.add('error', 'shake');
+      errorEl.textContent = 'Incorrect PIN — try again.';
+      setTimeout(()=>{
+        boxesWrap.classList.remove('shake');
+        setTimeout(()=>{
+          boxesWrap.classList.remove('error');
+          errorEl.innerHTML = '&nbsp;';
+          input.value = '';
+          renderBoxes('');
+          input.focus();
+        }, 550);
+      }, 450);
+    }
+
+    function unlock(skipAnimation){
+      localStorage.setItem(PIN_KEY, 'yes');
+      if(skipAnimation){
+        overlay.classList.add('hidden');
+        shell.classList.remove('hidden');
+      }else{
+        playSuccess();
+      }
     }
 
     if(localStorage.getItem(PIN_KEY) === 'yes'){
-      unlock();
+      unlock(true);
+      return;
     }
 
-    $('pinForm').addEventListener('submit', (e)=>{
-      e.preventDefault();
-      const input = $('pinInput');
-      if(input.value.trim() === PIN){
-        localStorage.setItem(PIN_KEY, 'yes');
-        $('pinError').textContent = '';
-        unlock();
-      }else{
-        $('pinError').textContent = 'Incorrect PIN.';
-        input.value = '';
-        input.focus();
+    boxesWrap.addEventListener('click', ()=> input.focus());
+    input.addEventListener('input', ()=>{
+      const digits = input.value.replace(/\D/g,'').slice(0,4);
+      input.value = digits;
+      renderBoxes(digits);
+      if(digits.length === 4){
+        if(digits === PIN) unlock(false);
+        else playError();
       }
     });
+    setTimeout(()=> input.focus(), 350);
   })();
 
   // Persist company profile / invoices / clients / catalog to Firestore so they
