@@ -240,6 +240,14 @@
   .inv-row .meta{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--ink-soft); margin-top:3px; }
   .inv-row .name{ font-weight:600; color:var(--navy); }
   .inv-row .amt{ font-family:'IBM Plex Mono', monospace; font-weight:700; color:var(--navy); font-size:15px; }
+  .inv-row-right{ display:flex; align-items:center; gap:14px; }
+  .inv-del-btn{
+    width:26px; height:26px; border-radius:6px; flex-shrink:0;
+    border:1.3px solid var(--line); background:#fff; color:var(--ink-soft);
+    font-size:16px; line-height:1; cursor:pointer; padding:0;
+    transition:background .12s, border-color .12s, color .12s;
+  }
+  .inv-del-btn:hover{ background:#B5433E; border-color:#B5433E; color:#fff; }
   .empty-note{ padding:30px 20px; color:var(--ink-soft); font-size:13.5px; text-align:center; }
 
   /* ================= PRINTABLE A4 DOCUMENT ================= */
@@ -593,6 +601,10 @@
         async set(key, value){
           await authReady;
           await db.collection('kv').doc(key).set({ value });
+        },
+        async remove(key){
+          await authReady;
+          await db.collection('kv').doc(key).delete();
         }
       };
     }catch(e){
@@ -607,6 +619,9 @@
         },
         async set(key, value){
           localStorage.setItem(key, value);
+        },
+        async remove(key){
+          localStorage.removeItem(key);
         }
       };
     }
@@ -1061,14 +1076,33 @@
           <div class="name">${escapeHtml(inv.custName)||'(no customer name)'}</div>
           <div class="meta">Invoice ${escapeHtml(inv.invNo)} · LPO ${escapeHtml(inv.lpoNo)||'—'} · ${inv.date||''}</div>
         </div>
-        <div class="amt">${(inv.net||0).toFixed(2)}</div>
+        <div class="inv-row-right">
+          <div class="amt">${(inv.net||0).toFixed(2)}</div>
+          <button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>
+        </div>
       </div>
     `).join('');
     wrap.querySelectorAll('.inv-row').forEach(row=>{
       row.addEventListener('click', ()=> openInvoice(row.dataset.inv));
     });
+    wrap.querySelectorAll('.inv-del-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        deleteInvoice(btn.dataset.inv);
+      });
+    });
   }
   $('invoiceSearch').addEventListener('input', renderSavedList);
+
+  async function deleteInvoice(invNo){
+    const inv = savedInvoices.find(x => x.invNo === invNo);
+    const label = inv ? `${inv.custName || 'this invoice'} (Invoice ${invNo})` : `invoice ${invNo}`;
+    if(!confirm(`Delete ${label}? This cannot be undone.`)) return;
+    savedInvoices = savedInvoices.filter(x => x.invNo !== invNo);
+    await persistInvoiceIndex();
+    try{ await window.storage.remove('invoice:'+invNo); }catch(e){ /* best effort */ }
+    renderSavedList();
+  }
 
   async function openInvoice(invNo){
     try{
