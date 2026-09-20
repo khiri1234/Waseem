@@ -377,6 +377,7 @@
       <button data-tab="setup"><span class="num">01</span> Company</button>
       <button data-tab="create" class="active"><span class="num">02</span> New Invoice</button>
       <button data-tab="saved"><span class="num">03</span> Saved</button>
+      <button data-tab="items"><span class="num">04</span> Items</button>
     </nav>
     <div class="rail-foot">Everything you save stays on this device. <b>Next invoice:</b> <span id="railNextInv" class="mono">—</span></div>
   </aside>
@@ -558,6 +559,38 @@
       </div>
     </section>
 
+    <!-- ============ ITEM CATALOG VIEW ============ -->
+    <section class="view" id="view-items">
+      <div class="topbar">
+        <div>
+          <h1>Item catalog</h1>
+          <div class="desc">Fix a misspelled description, adjust a price/VAT, or remove an item — this only affects future autocomplete suggestions, not past invoices.</div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="card">
+          <div class="card-head">
+            <input type="text" id="catalogSearch" placeholder="Search catalog items…" autocomplete="off" style="max-width:420px;">
+            <span class="tag" id="catalogSearchCount"></span>
+          </div>
+          <div class="card-body">
+            <table class="items">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th style="width:110px;">Unit price</th>
+                  <th style="width:80px;">VAT %</th>
+                  <th style="width:30px;"></th>
+                </tr>
+              </thead>
+              <tbody id="catalogBody"></tbody>
+            </table>
+            <button class="add-row-btn" id="addCatalogItemBtn">+ Add item</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -726,6 +759,57 @@
     persistCatalog();
   }
 
+  function renderCatalogList(){
+    const wrap = $('catalogBody');
+    const countTag = $('catalogSearchCount');
+    if(!itemCatalog.length){
+      wrap.innerHTML = `<tr><td colspan="4"><div class="empty-note">No catalog items yet — they're added automatically when you save an invoice, or add one manually below.</div></td></tr>`;
+      if(countTag) countTag.textContent = '';
+      return;
+    }
+    const q = ($('catalogSearch') && $('catalogSearch').value || '').trim().toLowerCase();
+    const filtered = !q ? itemCatalog : itemCatalog.filter(i => (i.desc||'').toLowerCase().includes(q));
+    countTag.textContent = q ? `${filtered.length} of ${itemCatalog.length}` : `${itemCatalog.length} total`;
+
+    if(!filtered.length){
+      wrap.innerHTML = `<tr><td colspan="4"><div class="empty-note">No items match “${escapeHtml($('catalogSearch').value)}”.</div></td></tr>`;
+      return;
+    }
+    wrap.innerHTML = filtered.map(it => {
+      const idx = itemCatalog.indexOf(it);
+      return `
+      <tr data-idx="${idx}">
+        <td><input type="text" data-field="desc" value="${escapeAttr(it.desc)}" placeholder="Item description"></td>
+        <td class="num"><input type="number" min="0" step="0.01" data-field="price" value="${it.price||0}"></td>
+        <td class="num"><input type="number" min="0" step="0.01" data-field="vat" value="${it.vat||0}"></td>
+        <td class="rm"><button class="rm-btn" title="Remove item">×</button></td>
+      </tr>`;
+    }).join('');
+    wrap.querySelectorAll('tr').forEach(tr=>{
+      const idx = parseInt(tr.dataset.idx, 10);
+      tr.querySelectorAll('input').forEach(inp=>{
+        inp.addEventListener('change', ()=>{
+          const f = inp.dataset.field;
+          itemCatalog[idx][f] = (f==='desc') ? inp.value.trim() : (parseFloat(inp.value)||0);
+          persistCatalog();
+        });
+      });
+      tr.querySelector('.rm-btn').addEventListener('click', ()=>{
+        if(!confirm(`Remove "${itemCatalog[idx].desc || 'this item'}" from the catalog?`)) return;
+        itemCatalog.splice(idx, 1);
+        persistCatalog();
+        renderCatalogList();
+      });
+    });
+  }
+  $('catalogSearch').addEventListener('input', renderCatalogList);
+  $('addCatalogItemBtn').addEventListener('click', ()=>{
+    itemCatalog.unshift({ desc:'', price:0, vat: company.vat||5 });
+    renderCatalogList();
+    const firstInput = $('catalogBody').querySelector('input[data-field="desc"]');
+    if(firstInput) firstInput.focus();
+  });
+
   // ---------- nav ----------
   document.querySelectorAll('.rail-nav button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -735,6 +819,7 @@
       $('view-'+btn.dataset.tab).classList.add('active');
       if(btn.dataset.tab === 'saved') renderSavedList();
       if(btn.dataset.tab === 'create') renderDoc();
+      if(btn.dataset.tab === 'items') renderCatalogList();
     });
   });
 
