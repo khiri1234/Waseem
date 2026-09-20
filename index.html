@@ -39,6 +39,28 @@
 
   /* ================= APP SHELL ================= */
   .shell{ display:flex; min-height:100vh; }
+  .shell.hidden{ display:none; }
+
+  /* ---- PIN gate ---- */
+  .pin-overlay{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--navy);
+  }
+  .pin-overlay.hidden{ display:none; }
+  .pin-card{
+    width:100%; max-width:300px; background:var(--paper);
+    border-radius:12px; padding:34px 30px 30px; text-align:center;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+  .pin-brand{ font-family:'Fraunces', serif; font-size:22px; font-weight:600; color:var(--navy); }
+  .pin-brand em{ font-style:normal; color:var(--brass); }
+  .pin-sub{ color:var(--ink-soft); font-size:12.5px; margin-top:4px; margin-bottom:22px; }
+  .pin-input{
+    width:100%; text-align:center; font-size:26px; letter-spacing:14px;
+    font-family:'IBM Plex Mono', monospace; padding:12px 11px 12px 25px;
+  }
+  .pin-card .btn{ width:100%; margin-top:14px; }
+  .pin-error{ color:var(--danger); font-size:12.5px; margin-top:12px; min-height:1em; }
 
   /* ---- Sidebar ---- */
   .rail{
@@ -365,7 +387,19 @@
 </head>
 <body>
 
-<div class="shell">
+<div class="pin-overlay" id="pinOverlay">
+  <div class="pin-card">
+    <div class="pin-brand">Ledger<em>·</em></div>
+    <div class="pin-sub">Tax Invoicing — enter PIN to continue</div>
+    <form id="pinForm">
+      <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pinInput" autocomplete="off" class="pin-input" placeholder="••••">
+      <button type="submit" class="btn">Unlock</button>
+      <div class="pin-error" id="pinError"></div>
+    </form>
+  </div>
+</div>
+
+<div class="shell hidden" id="appShell">
 
   <!-- ===== SIDEBAR ===== -->
   <aside class="rail">
@@ -600,6 +634,40 @@
 <script>
 (function(){
   const $ = (id) => document.getElementById(id);
+
+  // ---------- PIN gate ----------
+  // Simple shared-PIN screen (not per-user auth). Keeps the app off the browser
+  // history of anyone who doesn't know the PIN; unlocking is remembered on this
+  // browser via localStorage so it isn't asked again.
+  (function pinGate(){
+    const PIN = '1122';
+    const PIN_KEY = 'pin-unlocked';
+    const overlay = $('pinOverlay');
+    const shell = $('appShell');
+
+    function unlock(){
+      overlay.classList.add('hidden');
+      shell.classList.remove('hidden');
+    }
+
+    if(localStorage.getItem(PIN_KEY) === 'yes'){
+      unlock();
+    }
+
+    $('pinForm').addEventListener('submit', (e)=>{
+      e.preventDefault();
+      const input = $('pinInput');
+      if(input.value.trim() === PIN){
+        localStorage.setItem(PIN_KEY, 'yes');
+        $('pinError').textContent = '';
+        unlock();
+      }else{
+        $('pinError').textContent = 'Incorrect PIN.';
+        input.value = '';
+        input.focus();
+      }
+    });
+  })();
 
   // Persist company profile / invoices / clients / catalog to Firestore so they
   // survive across browsers and devices. Falls back to localStorage if Firebase
