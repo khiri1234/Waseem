@@ -783,11 +783,10 @@
 
   // ---------- PIN gate ----------
   // Simple shared-PIN screen (not per-user auth). Keeps the app off the browser
-  // history of anyone who doesn't know the PIN; unlocking is remembered on this
-  // browser via localStorage so it isn't asked again.
+  // history of anyone who doesn't know the PIN. Unlocking only lasts for the
+  // current page load — refreshing asks for the PIN again.
   (function pinGate(){
     const PIN = '1122';
-    const PIN_KEY = 'pin-unlocked';
     const overlay = $('pinOverlay');
     const shell = $('appShell');
     const input = $('pinInput');
@@ -833,19 +832,8 @@
       }, 450);
     }
 
-    function unlock(skipAnimation){
-      localStorage.setItem(PIN_KEY, 'yes');
-      if(skipAnimation){
-        overlay.classList.add('hidden');
-        shell.classList.remove('hidden');
-      }else{
-        playSuccess();
-      }
-    }
-
-    if(localStorage.getItem(PIN_KEY) === 'yes'){
-      unlock(true);
-      return;
+    function unlock(){
+      playSuccess();
     }
 
     boxesWrap.addEventListener('click', ()=> input.focus());
@@ -856,7 +844,7 @@
       input.value = digits;
       renderBoxes(digits);
       if(digits.length === 4){
-        if(digits === PIN) unlock(false);
+        if(digits === PIN) unlock();
         else playError();
       }
     });
