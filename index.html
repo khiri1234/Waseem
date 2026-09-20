@@ -39,25 +39,6 @@
 
   /* ================= APP SHELL ================= */
   .shell{ display:flex; min-height:100vh; }
-  .shell.hidden{ display:none; }
-
-  /* ---- Login screen ---- */
-  .login-overlay{
-    min-height:100vh; display:flex; align-items:center; justify-content:center;
-    background:var(--navy);
-  }
-  .login-overlay.hidden{ display:none; }
-  .login-card{
-    width:100%; max-width:340px; background:var(--paper);
-    border-radius:12px; padding:34px 30px 30px;
-    box-shadow:0 20px 50px rgba(0,0,0,0.35);
-  }
-  .login-brand{ font-family:'Fraunces', serif; font-size:22px; font-weight:600; color:var(--navy); text-align:center; }
-  .login-brand em{ font-style:normal; color:var(--brass); }
-  .login-sub{ text-align:center; color:var(--ink-soft); font-size:12.5px; margin-top:4px; margin-bottom:26px; }
-  .login-card .field{ margin-bottom:14px; }
-  .login-card .btn{ width:100%; margin-top:4px; }
-  .login-error{ color:var(--danger); font-size:12.5px; margin-top:12px; text-align:center; min-height:1em; }
 
   /* ---- Sidebar ---- */
   .rail{
@@ -105,9 +86,6 @@
     line-height:1.6;
   }
   .rail-foot b{ color:var(--text-on-navy); }
-  .rail-foot a{ text-decoration:underline; }
-  .rail-foot a:hover{ color:var(--text-on-navy); }
-  .rail-nav button[data-role="admin"].role-hidden{ display:none; }
 
   /* ---- Main ---- */
   main{ flex:1; min-width:0; }
@@ -387,26 +365,7 @@
 </head>
 <body>
 
-<div class="login-overlay" id="loginOverlay">
-  <div class="login-card">
-    <div class="login-brand">Ledger<em>·</em></div>
-    <div class="login-sub">Tax Invoicing — sign in to continue</div>
-    <form id="loginForm">
-      <div class="field">
-        <label for="loginUsername">Username</label>
-        <input type="text" id="loginUsername" autocomplete="username" autocapitalize="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="loginPassword">Password</label>
-        <input type="password" id="loginPassword" autocomplete="current-password">
-      </div>
-      <button type="submit" class="btn" id="loginBtn">Sign in</button>
-      <div class="login-error" id="loginError"></div>
-    </form>
-  </div>
-</div>
-
-<div class="shell hidden" id="appShell">
+<div class="shell">
 
   <!-- ===== SIDEBAR ===== -->
   <aside class="rail">
@@ -415,15 +374,12 @@
       <div class="sub">Tax Invoicing</div>
     </div>
     <nav class="rail-nav">
-      <button data-tab="setup" data-role="admin"><span class="num">01</span> Company</button>
+      <button data-tab="setup"><span class="num">01</span> Company</button>
       <button data-tab="create" class="active"><span class="num">02</span> New Invoice</button>
       <button data-tab="saved"><span class="num">03</span> Saved</button>
-      <button data-tab="items" data-role="admin"><span class="num">04</span> Items</button>
+      <button data-tab="items"><span class="num">04</span> Items</button>
     </nav>
-    <div class="rail-foot">
-      Signed in as <b id="railUser">—</b> (<span id="railRole">—</span>). <b>Next invoice:</b> <span id="railNextInv" class="mono">—</span>
-      <div style="margin-top:8px;"><a href="#" id="logoutLink" style="color:var(--text-on-navy-soft);">Log out</a></div>
-    </div>
+    <div class="rail-foot">Everything you save stays on this device. <b>Next invoice:</b> <span id="railNextInv" class="mono">—</span></div>
   </aside>
 
   <!-- ===== MAIN ===== -->
@@ -648,12 +604,6 @@
   // Persist company profile / invoices / clients / catalog to Firestore so they
   // survive across browsers and devices. Falls back to localStorage if Firebase
   // fails to load or initialize (e.g. offline, blocked script, misconfigured project).
-  // firebaseAuth stays null in the localStorage-fallback case, which the login
-  // logic below treats as "no login required, single local user, full access".
-  const AUTH_EMAIL_DOMAIN = 'waseem-invoices.local';
-  let firebaseAuth = null;
-  let firestoreDb = null;
-
   (function setupStorage(){
     try{
       const firebaseConfig = {
@@ -665,25 +615,33 @@
         appId: "1:303163022275:web:b1f0d9b39b391ed5c7fb76"
       };
       firebase.initializeApp(firebaseConfig);
-      firestoreDb = firebase.firestore();
-      firebaseAuth = firebase.auth();
+      const db = firebase.firestore();
+      const auth = firebase.auth();
+
+      const authReady = new Promise((resolve) => {
+        const unsub = auth.onAuthStateChanged(user => {
+          if(user){ unsub(); resolve(user); }
+        });
+        auth.signInAnonymously().catch(() => resolve(null));
+      });
 
       window.storage = {
         async get(key){
-          const snap = await firestoreDb.collection('kv').doc(key).get();
+          await authReady;
+          const snap = await db.collection('kv').doc(key).get();
           return snap.exists ? { value: snap.data().value } : null;
         },
         async set(key, value){
-          await firestoreDb.collection('kv').doc(key).set({ value });
+          await authReady;
+          await db.collection('kv').doc(key).set({ value });
         },
         async remove(key){
-          await firestoreDb.collection('kv').doc(key).delete();
+          await authReady;
+          await db.collection('kv').doc(key).delete();
         }
       };
     }catch(e){
       window.storage = null; // fall through to localStorage below
-      firebaseAuth = null;
-      firestoreDb = null;
     }
 
     if(!window.storage){
@@ -711,7 +669,6 @@
   let itemIdSeq = 1;
   let savedClients = [];   // [{name, address, trn, phone}]
   let itemCatalog = [];    // [{desc, price, vat}]
-  let currentRole = 'admin';
 
   // ---------- storage helpers ----------
   async function loadCompany(){
@@ -1206,7 +1163,7 @@
         </div>
         <div class="inv-row-right">
           <div class="amt">${(inv.net||0).toFixed(2)}</div>
-          ${currentRole === 'admin' ? `<button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>` : ''}
+          <button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>
         </div>
       </div>
     `).join('');
@@ -1223,7 +1180,6 @@
   $('invoiceSearch').addEventListener('input', renderSavedList);
 
   async function deleteInvoice(invNo){
-    if(currentRole !== 'admin') return;
     const inv = savedInvoices.find(x => x.invNo === invNo);
     const label = inv ? `${inv.custName || 'this invoice'} (Invoice ${invNo})` : `invoice ${invNo}`;
     if(!confirm(`Delete ${label}? This cannot be undone.`)) return;
@@ -1252,83 +1208,15 @@
     }catch(e){ /* not found */ }
   }
 
-  // ---------- auth / login ----------
-  function applyRole(role){
-    currentRole = role === 'admin' ? 'admin' : 'staff';
-    $('railRole').textContent = currentRole === 'admin' ? 'Admin' : 'Staff';
-    document.querySelectorAll('.rail-nav button[data-role="admin"]').forEach(btn=>{
-      btn.classList.toggle('role-hidden', currentRole !== 'admin');
-    });
-    if(currentRole !== 'admin' && document.querySelector('.rail-nav button[data-tab="setup"]').classList.contains('active')){
-      document.querySelector('.rail-nav button[data-tab="create"]').click();
-    }
-  }
-
-  async function resolveRole(uid){
-    if(!firestoreDb) return 'admin';
-    try{
-      const snap = await firestoreDb.collection('users').doc(uid).get();
-      if(snap.exists && snap.data().role) return snap.data().role;
-    }catch(e){ /* ignore, fall through to safe default */ }
-    return 'staff'; // fail-safe: unknown/unconfigured accounts get the lower-privilege role
-  }
-
-  async function startApp(username){
-    $('railUser').textContent = username || 'local';
+  // ---------- init ----------
+  (async function init(){
     await loadCompany();
     await loadInvoices();
     await loadClients();
     await loadCatalog();
     wireClientAutocomplete();
     clearForm(company.nextInv);
-    $('loginOverlay').classList.add('hidden');
-    $('appShell').classList.remove('hidden');
-  }
-
-  function showLogin(){
-    $('appShell').classList.add('hidden');
-    $('loginOverlay').classList.remove('hidden');
-    $('loginBtn').disabled = false;
-  }
-
-  if(firebaseAuth){
-    firebaseAuth.onAuthStateChanged(async (user)=>{
-      if(user){
-        const role = await resolveRole(user.uid);
-        applyRole(role);
-        const username = (user.email||'').split('@')[0] || 'user';
-        await startApp(username);
-      }else{
-        showLogin();
-      }
-    });
-
-    $('loginForm').addEventListener('submit', async (e)=>{
-      e.preventDefault();
-      const u = $('loginUsername').value.trim().toLowerCase();
-      const p = $('loginPassword').value;
-      $('loginError').textContent = '';
-      if(!u || !p){ $('loginError').textContent = 'Enter a username and password.'; return; }
-      $('loginBtn').disabled = true;
-      try{
-        await firebaseAuth.signInWithEmailAndPassword(u+'@'+AUTH_EMAIL_DOMAIN, p);
-      }catch(err){
-        $('loginError').textContent = 'Incorrect username or password.';
-        $('loginBtn').disabled = false;
-      }
-    });
-
-    $('logoutLink').addEventListener('click', (e)=>{
-      e.preventDefault();
-      firebaseAuth.signOut();
-    });
-  }else{
-    // Firebase unavailable (offline / blocked) — degraded single-browser mode,
-    // no login required since there's nothing shared to protect.
-    $('logoutLink').parentElement.style.display = 'none';
-    applyRole('admin');
-    startApp('local');
-  }
+  })();
 
 })();
 </script>
