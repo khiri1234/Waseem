@@ -398,6 +398,13 @@
     transition:background .12s, border-color .12s, color .12s;
   }
   .inv-del-btn:hover{ background:#B5433E; border-color:#B5433E; color:#fff; }
+  .inv-move-btn{
+    padding:5px 10px; border-radius:6px; flex-shrink:0; white-space:nowrap;
+    border:1.3px solid var(--line); background:#fff; color:var(--ink-soft);
+    font-size:11px; font-weight:600; cursor:pointer;
+    transition:background .12s, border-color .12s, color .12s;
+  }
+  .inv-move-btn:hover{ background:var(--brass); border-color:var(--brass); color:#241a06; }
   .empty-note{ padding:30px 20px; color:var(--ink-soft); font-size:13.5px; text-align:center; }
 
   .inv-row.selectable{ cursor:pointer; }
@@ -1487,6 +1494,7 @@
         </div>
         <div class="inv-row-right">
           <div class="amt">${(inv.net||0).toFixed(2)}</div>
+          ${!bulkSelectMode ? `<button type="button" class="inv-move-btn" data-inv="${escapeAttr(inv.invNo)}" title="Move to Bulk Invoices">→ Bulk</button>` : ''}
           ${!bulkSelectMode ? `<button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>` : ''}
         </div>
       </div>
@@ -1504,6 +1512,12 @@
         deleteInvoice(btn.dataset.inv);
       });
     });
+    wrap.querySelectorAll('.inv-move-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        setInvoiceBulkFlag(btn.dataset.inv, true);
+      });
+    });
     updateBulkBar();
   }
   $('invoiceSearch').addEventListener('input', renderSavedList);
@@ -1517,6 +1531,26 @@
     try{ await window.storage.remove('invoice:'+invNo); }catch(e){ /* best effort */ }
     renderSavedList();
     renderBulkList();
+  }
+
+  // Lets an invoice saved before bulk-tagging existed (or mis-tagged) be moved
+  // between the Saved and Bulk Invoices lists without re-entering its data.
+  async function setInvoiceBulkFlag(invNo, isBulk){
+    try{
+      const r = await window.storage.get('invoice:'+invNo);
+      if(!r) return;
+      const rec = JSON.parse(r.value);
+      rec.isBulk = isBulk;
+      if(!isBulk) delete rec.sourceInvoices;
+      await window.storage.set('invoice:'+invNo, JSON.stringify(rec));
+      const entry = savedInvoices.find(x => x.invNo === invNo);
+      if(entry) entry.isBulk = isBulk;
+      await persistInvoiceIndex();
+      renderSavedList();
+      renderBulkList();
+    }catch(e){
+      alert('Could not move this invoice — try again.');
+    }
   }
 
   // ---------- bulk invoices view ----------
@@ -1548,12 +1582,19 @@
         </div>
         <div class="inv-row-right">
           <div class="amt">${(inv.net||0).toFixed(2)}</div>
+          <button type="button" class="inv-move-btn" data-inv="${escapeAttr(inv.invNo)}" title="Move to Saved">→ Saved</button>
           <button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>
         </div>
       </div>
     `).join('');
     wrap.querySelectorAll('.inv-row').forEach(row=>{
       row.addEventListener('click', ()=> openInvoice(row.dataset.inv));
+    });
+    wrap.querySelectorAll('.inv-move-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        setInvoiceBulkFlag(btn.dataset.inv, false);
+      });
     });
     wrap.querySelectorAll('.inv-del-btn').forEach(btn=>{
       btn.addEventListener('click', (e)=>{
