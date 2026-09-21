@@ -743,7 +743,7 @@
       <div class="topbar">
         <div>
           <h1>Saved invoices</h1>
-          <div class="desc">Search, then click any invoice to view and reopen it — or select several for the same customer to combine into one bulk invoice.</div>
+          <div class="desc">Search, then click any invoice to view and reopen it — or select several for the same customer to combine into one bulk invoice. Bulk invoices move to the Bulk Invoices tab once saved.</div>
         </div>
       </div>
       <div class="content">
@@ -1453,7 +1453,8 @@
   function renderSavedList(){
     const wrap = $('savedList');
     const countTag = $('invoiceSearchCount');
-    if(!savedInvoices.length){
+    const nonBulkInvoices = savedInvoices.filter(inv => !inv.isBulk);
+    if(!nonBulkInvoices.length){
       wrap.innerHTML = `<div class="empty-note">No invoices saved yet — create one in the New Invoice tab.</div>`;
       if(countTag) countTag.textContent = '';
       lastFilteredInvoices = [];
@@ -1461,12 +1462,12 @@
       return;
     }
     const q = ($('invoiceSearch') && $('invoiceSearch').value || '').trim().toLowerCase();
-    const filtered = !q ? savedInvoices : savedInvoices.filter(inv => [
+    const filtered = !q ? nonBulkInvoices : nonBulkInvoices.filter(inv => [
       inv.custName, inv.invNo, inv.lpoNo, inv.date, (inv.net||0).toFixed(2)
     ].some(field => (field||'').toString().toLowerCase().includes(q)));
     lastFilteredInvoices = filtered;
 
-    if(countTag) countTag.textContent = q ? `${filtered.length} of ${savedInvoices.length}` : `${savedInvoices.length} total`;
+    if(countTag) countTag.textContent = q ? `${filtered.length} of ${nonBulkInvoices.length}` : `${nonBulkInvoices.length} total`;
 
     if(!filtered.length){
       wrap.innerHTML = `<div class="empty-note">No invoices match “${escapeHtml($('invoiceSearch').value)}”.</div>`;
