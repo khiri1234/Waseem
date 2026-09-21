@@ -577,6 +577,7 @@
       <button data-tab="create" class="active"><span class="num">02</span> New Invoice</button>
       <button data-tab="saved"><span class="num">03</span> Saved</button>
       <button data-tab="items"><span class="num">04</span> Items</button>
+      <button data-tab="bulk"><span class="num">05</span> Bulk Invoices</button>
     </nav>
     <div class="rail-foot">Everything you save stays on this device. <b>Next invoice:</b> <span id="railNextInv" class="mono">—</span></div>
   </aside>
@@ -801,6 +802,27 @@
       </div>
     </section>
 
+    <!-- ============ BULK INVOICES VIEW ============ -->
+    <section class="view" id="view-bulk">
+      <div class="topbar">
+        <div>
+          <h1>Bulk invoices</h1>
+          <div class="desc">Invoices created by combining multiple invoices for one customer are kept here for quick reference.</div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="card">
+          <div class="card-head">
+            <input type="text" id="bulkInvoiceSearch" placeholder="Search bulk invoices…" autocomplete="off" style="max-width:420px;">
+            <span class="tag" id="bulkInvoiceSearchCount"></span>
+          </div>
+          <div class="inv-list" id="bulkInvoiceList">
+            <div class="empty-note">No bulk invoices yet — combine invoices for the same customer from the Saved tab.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -951,6 +973,7 @@
   let itemCatalog = [];    // [{desc, price, vat}]
   let bulkSelectMode = false;
   let bulkSelected = new Set();
+  let pendingBulkMeta = null; // {isBulk:true, sourceInvoices:[...]} while the current draft is a bulk combine
 
   // ---------- storage helpers ----------
   async function loadCompany(){
@@ -995,6 +1018,7 @@
       if(list && list.value) savedInvoices = JSON.parse(list.value);
     }catch(e){ savedInvoices = []; }
     renderSavedList();
+    renderBulkList();
   }
   async function persistInvoiceIndex(){
     try{ await window.storage.set('invoice-index', JSON.stringify(savedInvoices)); }
@@ -1102,6 +1126,7 @@
       if(btn.dataset.tab === 'saved') renderSavedList();
       if(btn.dataset.tab === 'create') renderDoc();
       if(btn.dataset.tab === 'items') renderCatalogList();
+      if(btn.dataset.tab === 'bulk') renderBulkList();
     });
   });
 
@@ -1363,6 +1388,7 @@
 
   // ---------- save / clear / print ----------
   async function saveInvoiceRecord(){
+    const isBulk = !!(pendingBulkMeta && pendingBulkMeta.isBulk);
     const rec = {
       invNo: $('invNo').value,
       lpoNo: $('lpoNo').value,
@@ -1373,12 +1399,14 @@
       custPhone: $('custPhone').value,
       items: currentItems,
       totals: computeTotals(),
-      savedAt: new Date().toISOString()
+      savedAt: new Date().toISOString(),
+      isBulk: isBulk,
+      sourceInvoices: isBulk ? pendingBulkMeta.sourceInvoices : undefined
     };
     try{
       await window.storage.set('invoice:'+rec.invNo, JSON.stringify(rec));
       savedInvoices = savedInvoices.filter(x=>x.invNo!==rec.invNo);
-      savedInvoices.unshift({invNo:rec.invNo, custName:rec.custName, date:rec.date, net:rec.totals.net, lpoNo:rec.lpoNo});
+      savedInvoices.unshift({invNo:rec.invNo, custName:rec.custName, date:rec.date, net:rec.totals.net, lpoNo:rec.lpoNo, isBulk:rec.isBulk});
       await persistInvoiceIndex();
 
       const n = parseInt(rec.invNo);
@@ -1392,6 +1420,7 @@
       currentItems.forEach(i => upsertCatalogItem({ desc:i.desc, price:i.price, vat:i.vat }));
 
       renderSavedList();
+      renderBulkList();
       flashButton($('saveInvoiceBtn'), 'Saved ✓');
     }catch(e){
       flashButton($('saveInvoiceBtn'), 'Save failed');
@@ -1410,6 +1439,7 @@
     $('invDate').value = new Date().toISOString().slice(0,10);
     currentItems = [];
     itemIdSeq = 1;
+    pendingBulkMeta = null;
     addItem();
   }
 
@@ -1485,7 +1515,53 @@
     await persistInvoiceIndex();
     try{ await window.storage.remove('invoice:'+invNo); }catch(e){ /* best effort */ }
     renderSavedList();
+    renderBulkList();
   }
+
+  // ---------- bulk invoices view ----------
+  function renderBulkList(){
+    const wrap = $('bulkInvoiceList');
+    const countTag = $('bulkInvoiceSearchCount');
+    const bulkInvoices = savedInvoices.filter(inv => inv.isBulk);
+    if(!bulkInvoices.length){
+      wrap.innerHTML = `<div class="empty-note">No bulk invoices yet — combine invoices for the same customer from the Saved tab.</div>`;
+      if(countTag) countTag.textContent = '';
+      return;
+    }
+    const q = ($('bulkInvoiceSearch') && $('bulkInvoiceSearch').value || '').trim().toLowerCase();
+    const filtered = !q ? bulkInvoices : bulkInvoices.filter(inv => [
+      inv.custName, inv.invNo, inv.lpoNo, inv.date, (inv.net||0).toFixed(2)
+    ].some(field => (field||'').toString().toLowerCase().includes(q)));
+
+    if(countTag) countTag.textContent = q ? `${filtered.length} of ${bulkInvoices.length}` : `${bulkInvoices.length} total`;
+
+    if(!filtered.length){
+      wrap.innerHTML = `<div class="empty-note">No bulk invoices match “${escapeHtml($('bulkInvoiceSearch').value)}”.</div>`;
+      return;
+    }
+    wrap.innerHTML = filtered.map(inv => `
+      <div class="inv-row" data-inv="${escapeAttr(inv.invNo)}">
+        <div>
+          <div class="name">${escapeHtml(inv.custName)||'(no customer name)'}</div>
+          <div class="meta">Invoice ${escapeHtml(inv.invNo)} · LPO ${escapeHtml(inv.lpoNo)||'—'} · ${inv.date||''}</div>
+        </div>
+        <div class="inv-row-right">
+          <div class="amt">${(inv.net||0).toFixed(2)}</div>
+          <button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>
+        </div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.inv-row').forEach(row=>{
+      row.addEventListener('click', ()=> openInvoice(row.dataset.inv));
+    });
+    wrap.querySelectorAll('.inv-del-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        deleteInvoice(btn.dataset.inv);
+      });
+    });
+  }
+  $('bulkInvoiceSearch').addEventListener('input', renderBulkList);
 
   // ---------- bulk combine ----------
   function toggleBulkSelect(invNo){
@@ -1562,6 +1638,7 @@
     $('invNo').value = company.nextInv;
     $('invDate').value = new Date().toISOString().slice(0,10);
     renderItems();
+    pendingBulkMeta = { isBulk:true, sourceInvoices: invNos };
 
     bulkSelectMode = false;
     bulkSelected.clear();
@@ -1586,6 +1663,7 @@
       $('custPhone').value = rec.custPhone;
       currentItems = rec.items || [];
       itemIdSeq = (Math.max(0,...currentItems.map(i=>i.id||0)))+1;
+      pendingBulkMeta = rec.isBulk ? { isBulk:true, sourceInvoices: rec.sourceInvoices||[] } : null;
       renderItems();
       document.querySelector('.rail-nav button[data-tab="create"]').click();
     }catch(e){ /* not found */ }
