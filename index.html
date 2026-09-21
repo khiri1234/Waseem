@@ -721,6 +721,7 @@
                   <tbody id="itemsBody"></tbody>
                 </table>
                 <button class="add-row-btn" id="addItemBtn">+ Add line item</button>
+                <button type="button" class="btn secondary" id="mergeItemsBtn" style="margin-top:10px; padding:9px 16px; font-size:12.5px;" title="Combine rows with the same description, price and VAT% into one, summing quantity">Merge duplicate items</button>
 
                 <div class="totals" id="liveTotals">
                   <div class="row"><span class="lbl">Total before VAT</span><span id="tBefore">0.00</span></div>
@@ -1144,6 +1145,22 @@
     currentItems.push(item);
     renderItems();
   }
+  // Collapses items sharing the same description + unit price + VAT% into one
+  // row with quantities summed. Used both when combining invoices and to clean
+  // up repeats already sitting in a draft (e.g. an older bulk invoice).
+  function mergeDuplicateItems(items){
+    const map = new Map();
+    items.forEach(item => {
+      const desc = (item.desc||'').trim();
+      const price = item.price||0;
+      const vat = item.vat||0;
+      const key = desc.toLowerCase()+'|'+price+'|'+vat;
+      if(map.has(key)) map.get(key).qty += (item.qty||0);
+      else map.set(key, { desc, qty: item.qty||0, price, vat });
+    });
+    let seq = 1;
+    return Array.from(map.values()).map(item => ({ id: seq++, ...item }));
+  }
   function removeItem(id){
     currentItems = currentItems.filter(i=>i.id!==id);
     renderItems();
@@ -1267,6 +1284,14 @@
   }
 
   $('addItemBtn').addEventListener('click', ()=> addItem());
+  $('mergeItemsBtn').addEventListener('click', ()=>{
+    const before = currentItems.length;
+    currentItems = mergeDuplicateItems(currentItems);
+    itemIdSeq = (Math.max(0,...currentItems.map(i=>i.id||0)))+1;
+    renderItems();
+    const merged = before - currentItems.length;
+    flashButton($('mergeItemsBtn'), merged > 0 ? `Merged ${merged} row${merged>1?'s':''} ✓` : 'No duplicates found');
+  });
 
   // ---------- printable doc (paginates across A4 sheets when items overflow) ----------
   const FIRST_PAGE_MAX = 9;   // rows that fit on page 1 alongside the header/info boxes
@@ -1664,25 +1689,10 @@
     const lpoList = [];
     records.forEach(r => { const l = (r.lpoNo||'').trim(); if(l && !lpoList.includes(l)) lpoList.push(l); });
 
-    // Merge line items: identical description + unit price + VAT% collapse into
-    // one line with combined quantity, instead of repeating the same row.
-    const mergedItems = new Map();
-    records.forEach(r => {
-      (r.items||[]).forEach(item => {
-        const desc = (item.desc||'').trim();
-        const price = item.price||0;
-        const vat = item.vat||0;
-        const key = desc.toLowerCase()+'|'+price+'|'+vat;
-        if(mergedItems.has(key)){
-          mergedItems.get(key).qty += (item.qty||0);
-        }else{
-          mergedItems.set(key, { desc, qty: item.qty||0, price, vat });
-        }
-      });
-    });
-    currentItems = [];
-    itemIdSeq = 1;
-    mergedItems.forEach(item => currentItems.push({ id: itemIdSeq++, ...item }));
+    const allItems = [];
+    records.forEach(r => allItems.push(...(r.items||[])));
+    currentItems = mergeDuplicateItems(allItems);
+    itemIdSeq = (Math.max(0,...currentItems.map(i=>i.id||0)))+1;
 
     $('custName').value = base.custName || '';
     $('custAddress').value = base.custAddress || '';
