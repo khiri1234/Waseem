@@ -307,6 +307,9 @@
   .btn.secondary:hover{ border-color:var(--navy); }
   .btn.danger{ background:#fff; color:var(--danger); border-color:#EAD1CC; }
   .btn.danger:hover{ border-color:var(--danger); }
+  .btn:disabled{ opacity:0.45; cursor:not-allowed; }
+  .btn:disabled:hover{ background:var(--navy); }
+  .btn.secondary:disabled:hover{ background:#fff; border-color:var(--line); }
   .btn-row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
 
   .hint{ font-size:12.5px; color:var(--ink-soft); margin-top:8px; line-height:1.6; }
@@ -396,6 +399,22 @@
   }
   .inv-del-btn:hover{ background:#B5433E; border-color:#B5433E; color:#fff; }
   .empty-note{ padding:30px 20px; color:var(--ink-soft); font-size:13.5px; text-align:center; }
+
+  .inv-row.selectable{ cursor:pointer; }
+  .inv-row .inv-select-cb{
+    width:17px; height:17px; margin-right:14px; accent-color:var(--brass); flex-shrink:0; pointer-events:none;
+  }
+  .inv-row.selected{ background:#FBF6EA; }
+  .bulk-bar{
+    display:flex; align-items:center; gap:16px;
+    padding:12px 20px; background:#FBF6EA; border-bottom:1px solid var(--line);
+    font-size:12.5px; color:var(--navy);
+  }
+  .bulk-bar-all{ display:flex; align-items:center; gap:7px; cursor:pointer; font-weight:600; }
+  .bulk-bar-all input{ width:15px; height:15px; accent-color:var(--brass); }
+  #bulkBarLabel{ font-weight:700; margin-right:auto; }
+  .bulk-bar-actions{ display:flex; gap:10px; }
+  .bulk-bar .btn{ padding:8px 14px; font-size:12.5px; }
 
   /* ================= PRINTABLE A4 DOCUMENT ================= */
   /* The document itself stays plain black-on-white: this is the part a bank or auditor reads. */
@@ -723,14 +742,25 @@
       <div class="topbar">
         <div>
           <h1>Saved invoices</h1>
-          <div class="desc">Search, then click any invoice to view and reopen it.</div>
+          <div class="desc">Search, then click any invoice to view and reopen it — or select several for the same customer to combine into one bulk invoice.</div>
         </div>
       </div>
       <div class="content">
         <div class="card">
           <div class="card-head">
-            <input type="text" id="invoiceSearch" placeholder="Search by customer, invoice #, LPO, or date…" autocomplete="off" style="max-width:420px;">
-            <span class="tag" id="invoiceSearchCount"></span>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <input type="text" id="invoiceSearch" placeholder="Search by customer, invoice #, LPO, or date…" autocomplete="off" style="max-width:340px;">
+              <span class="tag" id="invoiceSearchCount"></span>
+            </div>
+            <button type="button" class="btn secondary" id="selectModeBtn">Select to combine</button>
+          </div>
+          <div class="bulk-bar" id="bulkBar" hidden>
+            <label class="bulk-bar-all"><input type="checkbox" id="bulkSelectAll"> Select all shown</label>
+            <span id="bulkBarLabel">0 selected</span>
+            <div class="bulk-bar-actions">
+              <button type="button" class="btn secondary" id="bulkCancelBtn">Cancel</button>
+              <button type="button" class="btn" id="bulkCombineBtn">Combine into bulk invoice</button>
+            </div>
           </div>
           <div class="inv-list" id="savedList">
             <div class="empty-note">No invoices saved yet — create one in the New Invoice tab.</div>
@@ -919,6 +949,8 @@
   let itemIdSeq = 1;
   let savedClients = [];   // [{name, address, trn, phone}]
   let itemCatalog = [];    // [{desc, price, vat}]
+  let bulkSelectMode = false;
+  let bulkSelected = new Set();
 
   // ---------- storage helpers ----------
   async function loadCompany(){
@@ -1386,39 +1418,54 @@
   $('clearFormBtn').addEventListener('click', ()=> clearForm());
   $('saveCompanyBtn').addEventListener('click', saveCompany);
 
+  let lastFilteredInvoices = [];
+
   function renderSavedList(){
     const wrap = $('savedList');
     const countTag = $('invoiceSearchCount');
     if(!savedInvoices.length){
       wrap.innerHTML = `<div class="empty-note">No invoices saved yet — create one in the New Invoice tab.</div>`;
       if(countTag) countTag.textContent = '';
+      lastFilteredInvoices = [];
+      updateBulkBar();
       return;
     }
     const q = ($('invoiceSearch') && $('invoiceSearch').value || '').trim().toLowerCase();
     const filtered = !q ? savedInvoices : savedInvoices.filter(inv => [
       inv.custName, inv.invNo, inv.lpoNo, inv.date, (inv.net||0).toFixed(2)
     ].some(field => (field||'').toString().toLowerCase().includes(q)));
+    lastFilteredInvoices = filtered;
 
     if(countTag) countTag.textContent = q ? `${filtered.length} of ${savedInvoices.length}` : `${savedInvoices.length} total`;
 
     if(!filtered.length){
       wrap.innerHTML = `<div class="empty-note">No invoices match “${escapeHtml($('invoiceSearch').value)}”.</div>`;
+      updateBulkBar();
       return;
     }
-    wrap.innerHTML = filtered.map(inv => `
-      <div class="inv-row" data-inv="${escapeAttr(inv.invNo)}">
-        <div>
-          <div class="name">${escapeHtml(inv.custName)||'(no customer name)'}</div>
-          <div class="meta">Invoice ${escapeHtml(inv.invNo)} · LPO ${escapeHtml(inv.lpoNo)||'—'} · ${inv.date||''}</div>
+    wrap.innerHTML = filtered.map(inv => {
+      const isSelected = bulkSelected.has(inv.invNo);
+      return `
+      <div class="inv-row ${bulkSelectMode?'selectable':''} ${isSelected?'selected':''}" data-inv="${escapeAttr(inv.invNo)}">
+        <div style="display:flex; align-items:center;">
+          ${bulkSelectMode ? `<input type="checkbox" class="inv-select-cb" ${isSelected?'checked':''}>` : ''}
+          <div>
+            <div class="name">${escapeHtml(inv.custName)||'(no customer name)'}</div>
+            <div class="meta">Invoice ${escapeHtml(inv.invNo)} · LPO ${escapeHtml(inv.lpoNo)||'—'} · ${inv.date||''}</div>
+          </div>
         </div>
         <div class="inv-row-right">
           <div class="amt">${(inv.net||0).toFixed(2)}</div>
-          <button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>
+          ${!bulkSelectMode ? `<button type="button" class="inv-del-btn" data-inv="${escapeAttr(inv.invNo)}" title="Delete this invoice" aria-label="Delete invoice ${escapeAttr(inv.invNo)}">&times;</button>` : ''}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     wrap.querySelectorAll('.inv-row').forEach(row=>{
-      row.addEventListener('click', ()=> openInvoice(row.dataset.inv));
+      row.addEventListener('click', ()=>{
+        if(bulkSelectMode) toggleBulkSelect(row.dataset.inv);
+        else openInvoice(row.dataset.inv);
+      });
     });
     wrap.querySelectorAll('.inv-del-btn').forEach(btn=>{
       btn.addEventListener('click', (e)=>{
@@ -1426,6 +1473,7 @@
         deleteInvoice(btn.dataset.inv);
       });
     });
+    updateBulkBar();
   }
   $('invoiceSearch').addEventListener('input', renderSavedList);
 
@@ -1437,6 +1485,91 @@
     await persistInvoiceIndex();
     try{ await window.storage.remove('invoice:'+invNo); }catch(e){ /* best effort */ }
     renderSavedList();
+  }
+
+  // ---------- bulk combine ----------
+  function toggleBulkSelect(invNo){
+    if(bulkSelected.has(invNo)) bulkSelected.delete(invNo);
+    else bulkSelected.add(invNo);
+    renderSavedList();
+  }
+
+  function updateBulkBar(){
+    const bar = $('bulkBar');
+    bar.hidden = !bulkSelectMode;
+    if(!bulkSelectMode) return;
+    $('bulkBarLabel').textContent = `${bulkSelected.size} selected`;
+    $('bulkCombineBtn').disabled = bulkSelected.size < 2;
+    const allShownSelected = lastFilteredInvoices.length > 0 && lastFilteredInvoices.every(inv => bulkSelected.has(inv.invNo));
+    $('bulkSelectAll').checked = allShownSelected;
+  }
+
+  $('selectModeBtn').addEventListener('click', ()=>{
+    bulkSelectMode = !bulkSelectMode;
+    bulkSelected.clear();
+    $('selectModeBtn').textContent = bulkSelectMode ? 'Exit select mode' : 'Select to combine';
+    renderSavedList();
+  });
+  $('bulkCancelBtn').addEventListener('click', ()=>{
+    bulkSelectMode = false;
+    bulkSelected.clear();
+    $('selectModeBtn').textContent = 'Select to combine';
+    renderSavedList();
+  });
+  $('bulkSelectAll').addEventListener('change', (e)=>{
+    if(e.target.checked) lastFilteredInvoices.forEach(inv => bulkSelected.add(inv.invNo));
+    else lastFilteredInvoices.forEach(inv => bulkSelected.delete(inv.invNo));
+    renderSavedList();
+  });
+  $('bulkCombineBtn').addEventListener('click', combineSelectedInvoices);
+
+  async function combineSelectedInvoices(){
+    const invNos = Array.from(bulkSelected);
+    if(invNos.length < 2){ alert('Select at least two invoices to combine.'); return; }
+
+    const records = [];
+    for(const no of invNos){
+      try{
+        const r = await window.storage.get('invoice:'+no);
+        if(r) records.push(JSON.parse(r.value));
+      }catch(e){ /* skip unreadable record */ }
+    }
+    if(records.length < 2){ alert('Could not load the selected invoices — try again.'); return; }
+
+    const firstKey = (records[0].custName||'').trim().toLowerCase();
+    if(!records.every(r => (r.custName||'').trim().toLowerCase() === firstKey)){
+      alert('All selected invoices must belong to the same customer to combine into one bulk invoice.');
+      return;
+    }
+
+    const base = records[0];
+    const lpoList = [];
+    records.forEach(r => { const l = (r.lpoNo||'').trim(); if(l && !lpoList.includes(l)) lpoList.push(l); });
+
+    currentItems = [];
+    itemIdSeq = 1;
+    records.forEach(r => {
+      (r.items||[]).forEach(item => {
+        currentItems.push({ ...item, id: itemIdSeq++ });
+      });
+    });
+
+    $('custName').value = base.custName || '';
+    $('custAddress').value = base.custAddress || '';
+    $('custTrn').value = base.custTrn || '';
+    $('custPhone').value = base.custPhone || '';
+    $('lpoNo').value = lpoList.join(', ');
+    $('invNo').value = company.nextInv;
+    $('invDate').value = new Date().toISOString().slice(0,10);
+    renderItems();
+
+    bulkSelectMode = false;
+    bulkSelected.clear();
+    $('selectModeBtn').textContent = 'Select to combine';
+    renderSavedList();
+
+    document.querySelector('.rail-nav button[data-tab="create"]').click();
+    alert(`Combined ${records.length} invoices for ${base.custName || 'this customer'} into a new draft (LPO: ${lpoList.join(', ') || '—'}). Review it, then click "Save Invoice" — the original invoices are untouched.`);
   }
 
   async function openInvoice(invNo){
