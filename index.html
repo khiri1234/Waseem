@@ -1664,13 +1664,25 @@
     const lpoList = [];
     records.forEach(r => { const l = (r.lpoNo||'').trim(); if(l && !lpoList.includes(l)) lpoList.push(l); });
 
-    currentItems = [];
-    itemIdSeq = 1;
+    // Merge line items: identical description + unit price + VAT% collapse into
+    // one line with combined quantity, instead of repeating the same row.
+    const mergedItems = new Map();
     records.forEach(r => {
       (r.items||[]).forEach(item => {
-        currentItems.push({ ...item, id: itemIdSeq++ });
+        const desc = (item.desc||'').trim();
+        const price = item.price||0;
+        const vat = item.vat||0;
+        const key = desc.toLowerCase()+'|'+price+'|'+vat;
+        if(mergedItems.has(key)){
+          mergedItems.get(key).qty += (item.qty||0);
+        }else{
+          mergedItems.set(key, { desc, qty: item.qty||0, price, vat });
+        }
       });
     });
+    currentItems = [];
+    itemIdSeq = 1;
+    mergedItems.forEach(item => currentItems.push({ id: itemIdSeq++, ...item }));
 
     $('custName').value = base.custName || '';
     $('custAddress').value = base.custAddress || '';
