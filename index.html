@@ -585,6 +585,7 @@
       <button data-tab="saved"><span class="num">03</span> Saved</button>
       <button data-tab="items"><span class="num">04</span> Items</button>
       <button data-tab="bulk"><span class="num">05</span> Bulk Invoices</button>
+      <button data-tab="clients"><span class="num">06</span> Clients</button>
     </nav>
     <div class="rail-foot">Everything you save stays on this device. <b>Next invoice:</b> <span id="railNextInv" class="mono">—</span></div>
   </aside>
@@ -831,6 +832,39 @@
       </div>
     </section>
 
+    <!-- ============ CLIENTS VIEW ============ -->
+    <section class="view" id="view-clients">
+      <div class="topbar">
+        <div>
+          <h1>Clients</h1>
+          <div class="desc">Fix a misspelled client name or details, or remove one you no longer need — this only affects future autocomplete suggestions, not past invoices.</div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="card">
+          <div class="card-head">
+            <input type="text" id="clientSearch" placeholder="Search clients…" autocomplete="off" style="max-width:420px;">
+            <span class="tag" id="clientSearchCount"></span>
+          </div>
+          <div class="card-body">
+            <table class="items">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Address</th>
+                  <th style="width:120px;">TRN</th>
+                  <th style="width:120px;">Phone</th>
+                  <th style="width:30px;"></th>
+                </tr>
+              </thead>
+              <tbody id="clientBody"></tbody>
+            </table>
+            <button class="add-row-btn" id="addClientBtn">+ Add client</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -1053,6 +1087,59 @@
     persistClients();
   }
 
+  function renderClientList(){
+    const wrap = $('clientBody');
+    const countTag = $('clientSearchCount');
+    if(!savedClients.length){
+      wrap.innerHTML = `<tr><td colspan="5"><div class="empty-note">No clients saved yet — they're added automatically when you save an invoice, or add one manually below.</div></td></tr>`;
+      if(countTag) countTag.textContent = '';
+      return;
+    }
+    const q = ($('clientSearch') && $('clientSearch').value || '').trim().toLowerCase();
+    const filtered = !q ? savedClients : savedClients.filter(c => [
+      c.name, c.address, c.trn, c.phone
+    ].some(field => (field||'').toLowerCase().includes(q)));
+    countTag.textContent = q ? `${filtered.length} of ${savedClients.length}` : `${savedClients.length} total`;
+
+    if(!filtered.length){
+      wrap.innerHTML = `<tr><td colspan="5"><div class="empty-note">No clients match “${escapeHtml($('clientSearch').value)}”.</div></td></tr>`;
+      return;
+    }
+    wrap.innerHTML = filtered.map(c => {
+      const idx = savedClients.indexOf(c);
+      return `
+      <tr data-idx="${idx}">
+        <td><input type="text" data-field="name" value="${escapeAttr(c.name)}" placeholder="Client name"></td>
+        <td><input type="text" data-field="address" value="${escapeAttr(c.address)}" placeholder="Address"></td>
+        <td><input type="text" data-field="trn" value="${escapeAttr(c.trn)}" placeholder="TRN"></td>
+        <td><input type="text" data-field="phone" value="${escapeAttr(c.phone)}" placeholder="Phone"></td>
+        <td class="rm"><button class="rm-btn" title="Remove client">×</button></td>
+      </tr>`;
+    }).join('');
+    wrap.querySelectorAll('tr').forEach(tr=>{
+      const idx = parseInt(tr.dataset.idx, 10);
+      tr.querySelectorAll('input').forEach(inp=>{
+        inp.addEventListener('change', ()=>{
+          savedClients[idx][inp.dataset.field] = inp.value.trim();
+          persistClients();
+        });
+      });
+      tr.querySelector('.rm-btn').addEventListener('click', ()=>{
+        if(!confirm(`Remove "${savedClients[idx].name || 'this client'}" from your saved clients?`)) return;
+        savedClients.splice(idx, 1);
+        persistClients();
+        renderClientList();
+      });
+    });
+  }
+  $('clientSearch').addEventListener('input', renderClientList);
+  $('addClientBtn').addEventListener('click', ()=>{
+    savedClients.unshift({ name:'', address:'', trn:'', phone:'' });
+    renderClientList();
+    const firstInput = $('clientBody').querySelector('input[data-field="name"]');
+    if(firstInput) firstInput.focus();
+  });
+
   // ---------- item catalog ----------
   async function loadCatalog(){
     try{
@@ -1135,6 +1222,7 @@
       if(btn.dataset.tab === 'create') renderDoc();
       if(btn.dataset.tab === 'items') renderCatalogList();
       if(btn.dataset.tab === 'bulk') renderBulkList();
+      if(btn.dataset.tab === 'clients') renderClientList();
     });
   });
 
