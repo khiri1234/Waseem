@@ -782,7 +782,10 @@
               <input type="text" id="invoiceSearch" placeholder="Search by customer, invoice #, LPO, or date…" autocomplete="off" style="max-width:340px;">
               <span class="tag" id="invoiceSearchCount"></span>
             </div>
-            <button type="button" class="btn secondary" id="selectModeBtn">Select to combine</button>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+              <button type="button" class="btn secondary" id="rebuildIndexBtn" title="If invoices you know you saved are missing from this list, use this to rebuild it from the stored invoice records themselves.">Missing invoices? Rebuild list</button>
+              <button type="button" class="btn secondary" id="selectModeBtn">Select to combine</button>
+            </div>
           </div>
           <div class="bulk-bar" id="bulkBar" hidden>
             <label class="bulk-bar-all"><input type="checkbox" id="bulkSelectAll"> Select all shown</label>
@@ -894,6 +897,10 @@
 <script>
 (function(){
   const $ = (id) => document.getElementById(id);
+  // Set by setupStorage() when Firebase is in play; used for direct recovery
+  // queries (e.g. rebuildInvoiceIndex()) outside the window.storage wrapper.
+  let firestoreDb = null;
+  let firestoreAuthReady = null;
 
   // ---------- storage error banner ----------
   function showStorageError(msg){
@@ -994,6 +1001,7 @@
       firebase.initializeApp(firebaseConfig);
       const db = firebase.firestore();
       const auth = firebase.auth();
+      firestoreDb = db;
 
       const authReady = new Promise((resolve) => {
         const unsub = auth.onAuthStateChanged(user => {
@@ -1004,6 +1012,7 @@
           resolve(null);
         });
       });
+      firestoreAuthReady = authReady;
 
       window.storage = {
         async get(key){
@@ -1108,18 +1117,69 @@
     $('coNextInv').value = company.nextInv;
   }
 
+  let invoiceIndexLoaded = false; // guards persistInvoiceIndex() from overwriting
+                                   // the server's index with a stale/empty list
+                                   // when the initial load itself failed.
   async function loadInvoices(){
     try{
       const list = await window.storage.get('invoice-index');
       if(list && list.value) savedInvoices = JSON.parse(list.value);
-    }catch(e){ savedInvoices = []; }
+      invoiceIndexLoaded = true;
+    }catch(e){
+      savedInvoices = [];
+      invoiceIndexLoaded = false;
+    }
     renderSavedList();
     renderBulkList();
   }
   async function persistInvoiceIndex(){
+    if(!invoiceIndexLoaded){
+      showStorageError("Can't save — your invoice list didn't load correctly. Refresh the page before making changes, or use \"Rebuild list\" in the Saved tab.");
+      return;
+    }
     try{ await window.storage.set('invoice-index', JSON.stringify(savedInvoices)); }
     catch(e){ /* best effort */ }
   }
+
+  // Rebuilds the invoice-index from the individual invoice:* records
+  // themselves, in case the index ever gets out of sync with them (e.g. a
+  // save happened while the index had failed to load, silently overwriting
+  // it with an incomplete list).
+  async function rebuildInvoiceIndex(){
+    if(!firestoreDb){
+      alert('Rebuilding the list requires a live connection to Firestore — this isn\'t available in offline/local mode.');
+      return;
+    }
+    if(!confirm('Rebuild the invoice list from every stored invoice record? This replaces the current list — use this if invoices you know you saved are missing.')) return;
+    try{
+      if(firestoreAuthReady) await firestoreAuthReady;
+      const snap = await firestoreDb.collection('kv')
+        .where(firebase.firestore.FieldPath.documentId(), '>=', 'invoice:')
+        .where(firebase.firestore.FieldPath.documentId(), '<', 'invoice;')
+        .get();
+      const rebuilt = [];
+      snap.forEach(doc => {
+        try{
+          const rec = JSON.parse(doc.data().value);
+          rebuilt.push({
+            invNo: rec.invNo, custName: rec.custName, date: rec.date,
+            net: (rec.totals && rec.totals.net) || 0, lpoNo: rec.lpoNo,
+            isBulk: !!rec.isBulk
+          });
+        }catch(e){ /* skip an unparsable record rather than failing the whole rebuild */ }
+      });
+      rebuilt.sort((a,b) => (b.date||'').localeCompare(a.date||'') || String(b.invNo).localeCompare(String(a.invNo)));
+      savedInvoices = rebuilt;
+      invoiceIndexLoaded = true;
+      await persistInvoiceIndex();
+      renderSavedList();
+      renderBulkList();
+      alert(`Rebuilt the list from ${rebuilt.length} stored invoice record(s).`);
+    }catch(e){
+      alert('Could not rebuild the list — check your connection and try again.');
+    }
+  }
+  $('rebuildIndexBtn').addEventListener('click', rebuildInvoiceIndex);
 
   // ---------- saved clients ----------
   async function loadClients(){
