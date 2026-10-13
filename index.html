@@ -42,6 +42,21 @@
   .shell.hidden{ display:none; }
   .shell.pre-fade{ opacity:0; }
 
+  /* ---- Storage error banner ---- */
+  .storage-banner{
+    position:fixed; top:0; left:0; right:0; z-index:500;
+    background:var(--danger); color:#fff; padding:10px 20px;
+    font-size:13px; font-weight:600; text-align:center;
+    display:flex; align-items:center; justify-content:center; gap:14px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.2);
+  }
+  .storage-banner[hidden]{ display:none; }
+  .storage-banner button{
+    background:#fff; color:var(--danger); border:none; border-radius:6px;
+    padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; flex-shrink:0;
+  }
+  .storage-banner button:hover{ background:#FBEAE7; }
+
   /* ---- PIN gate ---- */
   @keyframes pinFadeIn{ from{ opacity:0; } to{ opacity:1; } }
   @keyframes pinFadeOut{ from{ opacity:1; visibility:visible; } to{ opacity:0; visibility:hidden; } }
@@ -538,6 +553,11 @@
 </head>
 <body>
 
+<div class="storage-banner" id="storageErrorBanner" hidden>
+  <span class="storage-banner-text">Can't load your saved data right now.</span>
+  <button type="button" id="storageBannerRetry">Retry</button>
+</div>
+
 <div class="pin-overlay" id="pinOverlay">
   <div class="pin-bg">
     <div class="blob blob-1"></div>
@@ -875,6 +895,19 @@
 (function(){
   const $ = (id) => document.getElementById(id);
 
+  // ---------- storage error banner ----------
+  function showStorageError(msg){
+    const banner = $('storageErrorBanner');
+    if(!banner) return;
+    banner.querySelector('.storage-banner-text').textContent = msg;
+    banner.hidden = false;
+  }
+  function hideStorageError(){
+    const banner = $('storageErrorBanner');
+    if(banner) banner.hidden = true;
+  }
+  $('storageBannerRetry').addEventListener('click', ()=> location.reload());
+
   // ---------- PIN gate ----------
   // Simple shared-PIN screen (not per-user auth). Keeps the app off the browser
   // history of anyone who doesn't know the PIN. Unlocking only lasts for the
@@ -964,24 +997,45 @@
 
       const authReady = new Promise((resolve) => {
         const unsub = auth.onAuthStateChanged(user => {
-          if(user){ unsub(); resolve(user); }
+          if(user){ unsub(); hideStorageError(); resolve(user); }
         });
-        auth.signInAnonymously().catch(() => resolve(null));
+        auth.signInAnonymously().catch(() => {
+          showStorageError("Can't sign in to load your saved data — Anonymous sign-in may be disabled in Firebase.");
+          resolve(null);
+        });
       });
 
       window.storage = {
         async get(key){
-          await authReady;
-          const snap = await db.collection('kv').doc(key).get();
-          return snap.exists ? { value: snap.data().value } : null;
+          const user = await authReady;
+          if(!user) throw new Error('not signed in');
+          try{
+            const snap = await db.collection('kv').doc(key).get();
+            return snap.exists ? { value: snap.data().value } : null;
+          }catch(e){
+            showStorageError("Can't load your saved data — check your connection or Firestore permissions.");
+            throw e;
+          }
         },
         async set(key, value){
-          await authReady;
-          await db.collection('kv').doc(key).set({ value });
+          const user = await authReady;
+          if(!user) throw new Error('not signed in');
+          try{
+            await db.collection('kv').doc(key).set({ value });
+          }catch(e){
+            showStorageError("Can't save right now — check your connection or Firestore permissions.");
+            throw e;
+          }
         },
         async remove(key){
-          await authReady;
-          await db.collection('kv').doc(key).delete();
+          const user = await authReady;
+          if(!user) throw new Error('not signed in');
+          try{
+            await db.collection('kv').doc(key).delete();
+          }catch(e){
+            showStorageError("Can't save right now — check your connection or Firestore permissions.");
+            throw e;
+          }
         }
       };
     }catch(e){
