@@ -784,6 +784,7 @@
             </div>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <button type="button" class="btn secondary" id="rebuildIndexBtn" title="If invoices you know you saved are missing from this list, use this to rebuild it from the stored invoice records themselves.">Missing invoices? Rebuild list</button>
+              <button type="button" class="btn secondary" id="restoreBackupBtn" title="Restore the invoice list from the last backup snapshot taken before it was last saved.">Restore from backup</button>
               <button type="button" class="btn secondary" id="selectModeBtn">Select to combine</button>
             </div>
           </div>
@@ -1138,6 +1139,12 @@
       return;
     }
     try{ await window.storage.set('invoice-index', JSON.stringify(savedInvoices)); }
+    catch(e){ return; /* save failed — don't overwrite the backup with nothing */ }
+    // Keep a redundant last-known-good copy under a separate key. This is
+    // independent of the "rebuild from invoice:* records" tool below, so the
+    // list can still be recovered even if that collection query is ever
+    // blocked (e.g. by Firestore rules) or the individual records are gone.
+    try{ await window.storage.set('invoice-index-backup', JSON.stringify(savedInvoices)); }
     catch(e){ /* best effort */ }
   }
 
@@ -1180,6 +1187,30 @@
     }
   }
   $('rebuildIndexBtn').addEventListener('click', rebuildInvoiceIndex);
+
+  // Restores the invoice list from the redundant backup copy written by
+  // persistInvoiceIndex() on every successful save. This doesn't depend on
+  // querying the kv collection for every invoice:* record, so it still works
+  // if that query is ever blocked or the individual records are unavailable.
+  async function restoreInvoiceIndexFromBackup(){
+    if(!confirm('Restore the invoice list from the last backup? This replaces the current list with whatever it looked like at the last successful save.')) return;
+    try{
+      const backup = await window.storage.get('invoice-index-backup');
+      if(!backup || !backup.value){
+        alert('No backup is available yet — a backup is saved automatically each time the invoice list is saved.');
+        return;
+      }
+      savedInvoices = JSON.parse(backup.value);
+      invoiceIndexLoaded = true;
+      await persistInvoiceIndex();
+      renderSavedList();
+      renderBulkList();
+      alert(`Restored the list from backup (${savedInvoices.length} invoice record(s)).`);
+    }catch(e){
+      alert('Could not restore the backup — check your connection and try again.');
+    }
+  }
+  $('restoreBackupBtn').addEventListener('click', restoreInvoiceIndexFromBackup);
 
   // ---------- saved clients ----------
   async function loadClients(){
