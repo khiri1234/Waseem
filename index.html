@@ -529,6 +529,22 @@
   .doc .totals-block .trow .tval{ width:130px; text-align:right; font-weight:700; }
   .doc .totals-block .trow.net{ font-size:13.5px; }
 
+  /* ---- Bank details box ---- */
+  .doc .bank-block{
+    border:1.3px solid #000; border-radius:10px;
+    margin-top:14px; padding:12px 18px; font-size:12px;
+  }
+  .doc .bank-block .bank-title{
+    font-weight:700; font-size:12.5px; margin-bottom:6px;
+  }
+  .doc .bank-block .bank-title .ar{
+    font-family:'Noto Naskh Arabic', serif; font-size:13px; margin-left:8px; font-weight:700;
+  }
+  .doc .bank-block .bank-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:3px 18px;
+  }
+  .doc .bank-block .bank-row .bk{ font-weight:700; }
+
   /* ---- Footer signature box ---- */
   .doc .sign-footer{
     margin-top:auto; padding-top:20px;
@@ -668,6 +684,46 @@
             <div class="btn-row">
               <button class="btn brass" id="saveCompanyBtn">Save company details</button>
               <span class="save-note" id="companySavedNote"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Bank details</h3><span class="tag">Printed on every invoice when filled in</span></div>
+          <div class="card-body">
+            <div class="grid cols-2">
+              <div class="field">
+                <label>Bank name</label>
+                <input id="coBankName" placeholder="e.g. Emirates NBD">
+              </div>
+              <div class="field">
+                <label>Account holder name</label>
+                <input id="coBankAccName" placeholder="Same as company name, if blank">
+              </div>
+            </div>
+            <div class="grid cols-2" style="margin-top:16px;">
+              <div class="field">
+                <label>Account number</label>
+                <input id="coBankAccNo" placeholder="e.g. 1234567890123">
+              </div>
+              <div class="field">
+                <label>IBAN</label>
+                <input id="coBankIban" placeholder="e.g. AE07 0331 2345 6789 0123 456">
+              </div>
+            </div>
+            <div class="grid cols-2" style="margin-top:16px;">
+              <div class="field">
+                <label>SWIFT / BIC code</label>
+                <input id="coBankSwift" placeholder="e.g. EBILAEAD">
+              </div>
+              <div class="field">
+                <label>Branch — optional</label>
+                <input id="coBankBranch" placeholder="e.g. Deira Branch">
+              </div>
+            </div>
+            <div class="btn-row">
+              <button class="btn brass" id="saveBankBtn">Save bank details</button>
+              <span class="save-note" id="bankSavedNote"></span>
             </div>
           </div>
         </div>
@@ -1075,7 +1131,8 @@
   })();
 
   const defaultCompany = {
-    nameEn:'', nameAr:'', address:'', phone:'', trn:'', vat:5, nextInv:1001
+    nameEn:'', nameAr:'', address:'', phone:'', trn:'', vat:5, nextInv:1001,
+    bankName:'', bankAccName:'', bankAccNo:'', bankIban:'', bankSwift:'', bankBranch:''
   };
   let company = {...defaultCompany};
   let currentItems = [];
@@ -1104,13 +1161,25 @@
     company.trn = $('coTrn').value.trim();
     company.vat = parseFloat($('coVat').value) || 0;
     company.nextInv = parseInt($('coNextInv').value) || company.nextInv;
+    await persistCompany($('companySavedNote'));
+  }
+  async function saveBankDetails(){
+    company.bankName = $('coBankName').value.trim();
+    company.bankAccName = $('coBankAccName').value.trim();
+    company.bankAccNo = $('coBankAccNo').value.trim();
+    company.bankIban = $('coBankIban').value.trim();
+    company.bankSwift = $('coBankSwift').value.trim();
+    company.bankBranch = $('coBankBranch').value.trim();
+    await persistCompany($('bankSavedNote'));
+  }
+  async function persistCompany(noteEl){
     try{
       await window.storage.set('company-profile', JSON.stringify(company));
-      $('companySavedNote').textContent = 'Saved.';
+      noteEl.textContent = 'Saved.';
       $('railNextInv').textContent = company.nextInv;
-      setTimeout(()=> $('companySavedNote').textContent = '', 2000);
+      setTimeout(()=> noteEl.textContent = '', 2000);
     }catch(e){
-      $('companySavedNote').textContent = 'Could not save — try again.';
+      noteEl.textContent = 'Could not save — try again.';
     }
     renderDoc();
   }
@@ -1122,6 +1191,12 @@
     $('coTrn').value = company.trn;
     $('coVat').value = company.vat;
     $('coNextInv').value = company.nextInv;
+    $('coBankName').value = company.bankName || '';
+    $('coBankAccName').value = company.bankAccName || '';
+    $('coBankAccNo').value = company.bankAccNo || '';
+    $('coBankIban').value = company.bankIban || '';
+    $('coBankSwift').value = company.bankSwift || '';
+    $('coBankBranch').value = company.bankBranch || '';
   }
 
   let invoiceIndexLoaded = false; // guards persistInvoiceIndex() from overwriting
@@ -1520,6 +1595,26 @@
       <td class="r">${(line+vatAmt).toFixed(2)}</td>
     </tr>`;
   }
+  function buildBankDetailsHtml(){
+    const hasBank = ['bankName','bankAccName','bankAccNo','bankIban','bankSwift','bankBranch']
+      .some(k => (company[k]||'').trim());
+    if(!hasBank) return '';
+    const rows = [
+      ['Bank Name', company.bankName],
+      ['Account Name', company.bankAccName || company.nameEn],
+      ['Account No.', company.bankAccNo],
+      ['IBAN', company.bankIban],
+      ['SWIFT / BIC', company.bankSwift],
+      ['Branch', company.bankBranch]
+    ].filter(([,v]) => (v||'').trim());
+    return `
+      <div class="bank-block">
+        <div class="bank-title">Bank Details<span class="ar">تفاصيل البنك</span></div>
+        <div class="bank-grid">
+          ${rows.map(([label,v]) => `<div class="bank-row"><span class="bk">${escapeHtml(label)}:</span> ${escapeHtml(v)}</div>`).join('')}
+        </div>
+      </div>`;
+  }
   const ITEMS_HEAD = `
     <tr>
       <th>Sl. No.<span class="ar">رقم</span></th>
@@ -1599,6 +1694,7 @@
           <div class="trow"><span class="tlabel">Total VAT<span class="ar">مجموع ضريبة</span></span><span class="tval">${t.vat.toFixed(2)}</span></div>
           <div class="trow net"><span class="tlabel">Net Total :<span class="ar">المجموع الصافي</span></span><span class="tval">${t.net.toFixed(2)}</span></div>
         </div>
+        ${buildBankDetailsHtml()}
 
         <div class="sign-footer">
           <div class="sign-box-wrap">
@@ -1688,6 +1784,7 @@
   $('printInvoiceBtn').addEventListener('click', ()=> window.print());
   $('clearFormBtn').addEventListener('click', ()=> clearForm());
   $('saveCompanyBtn').addEventListener('click', saveCompany);
+  $('saveBankBtn').addEventListener('click', saveBankDetails);
 
   let lastFilteredInvoices = [];
 
