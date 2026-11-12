@@ -782,6 +782,10 @@
                     <input id="invDate" type="date">
                   </div>
                 </div>
+                <label style="margin-top:16px; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-soft); cursor:pointer;">
+                  <input type="checkbox" id="includeBankDetails" style="width:16px; height:16px; accent-color:var(--brass); flex-shrink:0;">
+                  Include bank details on this invoice — only if this client needs them
+                </label>
               </div>
             </div>
 
@@ -1694,7 +1698,7 @@
           <div class="trow"><span class="tlabel">Total VAT<span class="ar">مجموع ضريبة</span></span><span class="tval">${t.vat.toFixed(2)}</span></div>
           <div class="trow net"><span class="tlabel">Net Total :<span class="ar">المجموع الصافي</span></span><span class="tval">${t.net.toFixed(2)}</span></div>
         </div>
-        ${buildBankDetailsHtml()}
+        ${$('includeBankDetails').checked ? buildBankDetailsHtml() : ''}
 
         <div class="sign-footer">
           <div class="sign-box-wrap">
@@ -1738,7 +1742,8 @@
       totals: computeTotals(),
       savedAt: new Date().toISOString(),
       isBulk: isBulk,
-      sourceInvoices: isBulk ? pendingBulkMeta.sourceInvoices : undefined
+      sourceInvoices: isBulk ? pendingBulkMeta.sourceInvoices : undefined,
+      includeBankDetails: $('includeBankDetails').checked
     };
     try{
       await window.storage.set('invoice:'+rec.invNo, JSON.stringify(rec));
@@ -1774,12 +1779,14 @@
     $('lpoNo').value='';
     $('invNo').value = nextInvNo != null ? nextInvNo : company.nextInv;
     $('invDate').value = new Date().toISOString().slice(0,10);
+    $('includeBankDetails').checked = false;
     currentItems = [];
     itemIdSeq = 1;
     pendingBulkMeta = null;
     addItem();
   }
 
+  $('includeBankDetails').addEventListener('change', renderDoc);
   $('saveInvoiceBtn').addEventListener('click', saveInvoiceRecord);
   $('printInvoiceBtn').addEventListener('click', ()=> window.print());
   $('clearFormBtn').addEventListener('click', ()=> clearForm());
@@ -2007,6 +2014,7 @@
     $('lpoNo').value = lpoList.join(', ');
     $('invNo').value = company.nextInv;
     $('invDate').value = new Date().toISOString().slice(0,10);
+    $('includeBankDetails').checked = false;
     renderItems();
     pendingBulkMeta = { isBulk:true, sourceInvoices: invNos };
 
@@ -2031,6 +2039,7 @@
       $('custAddress').value = rec.custAddress;
       $('custTrn').value = rec.custTrn;
       $('custPhone').value = rec.custPhone;
+      $('includeBankDetails').checked = !!rec.includeBankDetails;
       currentItems = rec.items || [];
       itemIdSeq = (Math.max(0,...currentItems.map(i=>i.id||0)))+1;
       pendingBulkMeta = rec.isBulk ? { isBulk:true, sourceInvoices: rec.sourceInvoices||[] } : null;
